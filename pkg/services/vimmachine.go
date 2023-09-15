@@ -30,7 +30,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/utils/integer"
+	"k8s.io/utils/pointer"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/remote"
 	clusterutilv1 "sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -171,6 +173,68 @@ func (v *VimMachineService) ReconcileNormal(c context.MachineContext) (bool, err
 	}
 
 	ctx.VSphereMachine.Status.Ready = true
+	return false, nil
+}
+
+func (v *VimMachineService) ReconcileUpgrade(c context.MachineContext, tracker *remote.ClusterCacheTracker) (bool, error) {
+	ctx, ok := c.(*context.VIMMachineContext)
+	if !ok {
+		return false, errors.New("received unexpected VIMMachineContext type")
+	}
+
+	clusterClient, err := tracker.GetClient(ctx, client.ObjectKeyFromObject(c.GetCluster()))
+	if err != nil {
+		if errors.Is(err, remote.ErrClusterLocked) {
+			ctx.Logger.Info("Requeuing because another worker has the lock on the ClusterCacheTracker")
+			return true, nil
+		}
+		return false, err
+	}
+	// Get the corresponding node
+	node := &corev1.Node{}
+	nodeKey := types.NamespacedName{
+		Name: ctx.Machine.Status.NodeRef.Name,
+	}
+	err = clusterClient.Get(ctx, nodeKey, node)
+	if err != nil {
+		return false, errors.Wrap(err, "error getting node")
+	}
+	_, ok = node.Annotations["infrastructure.cluster.x-k8s.io/inplace-upgrade"]
+	if !ok || *ctx.VSphereMachine.Status.Upgrade.Phase == "Scheduled" {
+		ctx.Logger.Info("Initiating Inplace upgrade", "Node", node.Name)
+		transitionedAt := metav1.Now()
+		ctx.VSphereMachine.Status.Upgrade = clusterv1.UpgradeStatus{
+			Phase:          pointer.String("Running"),
+			TransitionedAt: &transitionedAt,
+		}
+		node.Annotations["infrastructure.cluster.x-k8s.io/inplace-upgrade"] = "Scheduled"
+		err := clusterClient.Update(ctx, node)
+		if err != nil {
+			ctx.Logger.Error(err, "unable to update node")
+		}
+		return true, nil
+	} else {
+		if node.Annotations["infrastructure.cluster.x-k8s.io/inplace-upgrade"] == "Upgraded" {
+			ctx.Logger.Info("Inplace upgrade completed", "Node", node)
+			transitionedAt := metav1.Now()
+			ctx.VSphereMachine.Status.Upgrade = clusterv1.UpgradeStatus{
+				Phase:          pointer.String("Completed"),
+				TransitionedAt: &transitionedAt,
+			}
+		} else if node.Annotations["infrastructure.cluster.x-k8s.io/inplace-upgrade"] == "Failed" {
+			ctx.Logger.Info("Inplace upgrade failed", "Node", node.Name)
+			conditions.MarkFalse(ctx.GetVSphereMachine(), infrav1.InplaceUpgradeCondition, infrav1.InplaceUpgradeFailedReason, clusterv1.ConditionSeverityError, "")
+			transitionedAt := metav1.Now()
+			ctx.VSphereMachine.Status.Upgrade = clusterv1.UpgradeStatus{
+				Phase:          pointer.String("Failed"),
+				TransitionedAt: &transitionedAt,
+			}
+			return true, nil
+		} else {
+			ctx.Logger.Info("Inplace upgrade running", "Node", node.Name)
+			return true, nil
+		}
+	}
 	return false, nil
 }
 

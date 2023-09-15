@@ -1404,6 +1404,18 @@ spec:
               ready:
                 description: Ready is true when the provider resource is ready.
                 type: boolean
+              upgrade:
+                description: Upgrade represents the current in-place upgrade status.
+                  E.g. Scheduled, Running, Failed, Completed etc.
+                properties:
+                  phase:
+                    description: Upgrade represents the current in-place upgrade status.
+                      E.g. Running, Failed, Completed, etc.
+                    type: string
+                  transitionedAt:
+                    format: date-time
+                    type: string
+                type: object
             type: object
         type: object
     served: true

@@ -1501,6 +1501,7 @@ func autoConvert_v1beta1_VSphereMachineStatus_To_v1alpha4_VSphereMachineStatus(i
 	out.FailureReason = (*errors.MachineStatusError)(unsafe.Pointer(in.FailureReason))
 	out.FailureMessage = (*string)(unsafe.Pointer(in.FailureMessage))
 	out.Conditions = *(*apiv1alpha4.Conditions)(unsafe.Pointer(&in.Conditions))
+	// WARNING: in.Upgrade requires manual conversion: does not exist in peer-type
 	return nil
 }
 
@@ -1508,7 +1509,6 @@ func autoConvert_v1beta1_VSphereMachineStatus_To_v1alpha4_VSphereMachineStatus(i
 func Convert_v1beta1_VSphereMachineStatus_To_v1alpha4_VSphereMachineStatus(in *v1beta1.VSphereMachineStatus, out *VSphereMachineStatus, s conversion.Scope) error {
 	return autoConvert_v1beta1_VSphereMachineStatus_To_v1alpha4_VSphereMachineStatus(in, out, s)
 }
-
 func autoConvert_v1alpha4_VSphereMachineTemplate_To_v1beta1_VSphereMachineTemplate(in *VSphereMachineTemplate, out *v1beta1.VSphereMachineTemplate, s conversion.Scope) error {
 	out.ObjectMeta = in.ObjectMeta
 	if err := Convert_v1alpha4_VSphereMachineTemplateSpec_To_v1beta1_VSphereMachineTemplateSpec(&in.Spec, &out.Spec, s); err != nil {

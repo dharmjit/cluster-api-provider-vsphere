@@ -126,6 +126,11 @@ type VSphereMachineStatus struct {
 	// Conditions defines current service state of the VSphereMachine.
 	// +optional
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
+
+	// Upgrade represents the current in-place upgrade status.
+	// E.g. Scheduled, Running, Failed, Completed etc.
+	// +optional
+	Upgrade clusterv1.UpgradeStatus `json:"upgrade,omitempty"`
 }
 
 // +kubebuilder:object:root=true

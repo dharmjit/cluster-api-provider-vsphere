@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/remote"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -39,7 +40,6 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/apis/v1beta1"
 	vmwarev1 "sigs.k8s.io/cluster-api-provider-vsphere/apis/vmware/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-vsphere/controllers"
-	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/manager"
 )
 
@@ -233,18 +233,52 @@ func getManager(cfg *rest.Config, networkProvider string) manager.Manager {
 		CredentialsFile: tmpFile.Name(),
 	}
 
-	controllerOpts := controller.Options{MaxConcurrentReconciles: 10}
+	// opts.AddToManager = func(ctx *context.ControllerManagerContext, mgr ctrlmgr.Manager) error {
+	// 	if err := controllers.AddClusterControllerToManager(ctx, mgr, &vmwarev1.VSphereCluster{}, controllerOpts); err != nil {
+	// 		return err
+	// 	}
 
-	opts.AddToManager = func(ctx *context.ControllerManagerContext, mgr ctrlmgr.Manager) error {
-		if err := controllers.AddClusterControllerToManager(ctx, mgr, &vmwarev1.VSphereCluster{}, controllerOpts); err != nil {
-			return err
-		}
-
-		return controllers.AddMachineControllerToManager(ctx, mgr, &vmwarev1.VSphereMachine{}, controllerOpts)
-	}
+	// 	return controllers.AddMachineControllerToManager(ctx, mgr, &vmwarev1.VSphereMachine{}, controllerOpts)
+	// }
 
 	mgr, err := manager.New(opts)
 	Expect(err).NotTo(HaveOccurred())
+	secretCachingClient, err := client.New(mgr.GetConfig(), client.Options{
+		HTTPClient: mgr.GetHTTPClient(),
+		Cache: &client.CacheOptions{
+			Reader: mgr.GetCache(),
+		},
+	})
+	if err != nil {
+		panic("unable to create secret caching client")
+	}
+
+	tracker, err := remote.NewClusterCacheTracker(
+		mgr,
+		remote.ClusterCacheTrackerOptions{
+			SecretCachingClient: secretCachingClient,
+			ControllerName:      "manager",
+		},
+	)
+	if err != nil {
+		panic(fmt.Sprintf("unable to setup ClusterCacheTracker: %v", err))
+	}
+
+	controllerOpts := controller.Options{MaxConcurrentReconciles: 10}
+
+	if err := (&remote.ClusterCacheReconciler{
+		Client:  mgr.GetClient(),
+		Tracker: tracker,
+	}).SetupWithManager(ctx, mgr, controllerOpts); err != nil {
+		panic(fmt.Sprintf("unable to create ClusterCacheReconciler controller: %v", err))
+	}
+
+	if err := controllers.AddClusterControllerToManager(mgr.GetContext(), mgr, &infrav1.VSphereCluster{}, controllerOpts); err != nil {
+		panic(fmt.Sprintf("unable to setup VsphereCluster controller: %v", err))
+	}
+	if err := controllers.AddMachineControllerToManager(mgr.GetContext(), mgr, tracker, &infrav1.VSphereMachine{}, controllerOpts); err != nil {
+		panic(fmt.Sprintf("unable to setup VsphereMachine controller: %v", err))
+	}
 	return mgr
 }
 

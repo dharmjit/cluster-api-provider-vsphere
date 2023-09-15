@@ -30,7 +30,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/utils/pointer"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/remote"
 	clusterutilv1 "sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -78,7 +80,7 @@ const hostInfoErrStr = "host info cannot be used as a label value"
 // AddMachineControllerToManager adds the machine controller to the provided
 // manager.
 
-func AddMachineControllerToManager(ctx *context.ControllerManagerContext, mgr manager.Manager, controlledType client.Object, options controller.Options) error {
+func AddMachineControllerToManager(ctx *context.ControllerManagerContext, mgr manager.Manager, tracker *remote.ClusterCacheTracker, controlledType client.Object, options controller.Options) error {
 	supervisorBased, err := util.IsSupervisorType(controlledType)
 	if err != nil {
 		return err
@@ -126,9 +128,10 @@ func AddMachineControllerToManager(ctx *context.ControllerManagerContext, mgr ma
 		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(ctrl.LoggerFrom(ctx), ctx.WatchFilterValue))
 
 	r := &machineReconciler{
-		ControllerContext: controllerContext,
-		VMService:         &services.VimMachineService{},
-		supervisorBased:   supervisorBased,
+		ControllerContext:         controllerContext,
+		VMService:                 &services.VimMachineService{},
+		supervisorBased:           supervisorBased,
+		RemoteClusterCacheTracker: tracker,
 	}
 
 	if supervisorBased {
@@ -174,9 +177,10 @@ func AddMachineControllerToManager(ctx *context.ControllerManagerContext, mgr ma
 
 type machineReconciler struct {
 	*context.ControllerContext
-	VMService       services.VSphereMachineService
-	networkProvider services.NetworkProvider
-	supervisorBased bool
+	VMService                 services.VSphereMachineService
+	networkProvider           services.NetworkProvider
+	supervisorBased           bool
+	RemoteClusterCacheTracker *remote.ClusterCacheTracker
 }
 
 // Reconcile ensures the back-end state reflects the Kubernetes resource state intent.
@@ -228,6 +232,7 @@ func (r *machineReconciler) Reconcile(_ goctx.Context, req ctrl.Request) (_ ctrl
 		conditions.SetSummary(machineContext.GetVSphereMachine(),
 			conditions.WithConditions(
 				infrav1.VMProvisionedCondition,
+				infrav1.InplaceUpgradeCondition,
 			),
 		)
 
@@ -340,6 +345,38 @@ func (r *machineReconciler) reconcileNormal(ctx context.MachineContext) (reconci
 	}
 
 	conditions.MarkTrue(ctx.GetVSphereMachine(), infrav1.VMProvisionedCondition)
+
+	// Inplace Upgrade Handling
+	if ctx.GetMachine().Spec.Upgrade.Run != nil && *ctx.GetMachine().Spec.Upgrade.Run {
+		ctx, ok := ctx.(*context.VIMMachineContext)
+		if !ok {
+			return reconcile.Result{}, errors.New("received unexpected VIMMachineContext type")
+		}
+		if ctx.VSphereMachine.Status.Upgrade.Phase == nil {
+			r.Logger.Info("Handling for the first upgrade run")
+			transitionedAt := metav1.Now()
+			ctx.VSphereMachine.Status.Upgrade = clusterv1.UpgradeStatus{
+				Phase:          pointer.String("Scheduled"),
+				TransitionedAt: &transitionedAt,
+			}
+			conditions.MarkFalse(ctx.VSphereMachine, infrav1.InplaceUpgradeCondition, infrav1.InplaceUpgradeRunningReason, clusterv1.ConditionSeverityInfo, "")
+		} else if *ctx.VSphereMachine.Status.Upgrade.Phase == "Completed" && (ctx.VSphereMachine.Status.Upgrade.TransitionedAt.Time).Before(ctx.Machine.Spec.Upgrade.StartedAt.Time) {
+			r.Logger.Info("Resetting the condition and status.upgrade for a subsequent upgrade")
+			transitionedAt := metav1.Now()
+			ctx.VSphereMachine.Status.Upgrade = clusterv1.UpgradeStatus{
+				Phase:          pointer.String("Scheduled"),
+				TransitionedAt: &transitionedAt,
+			}
+			conditions.MarkFalse(ctx.VSphereMachine, infrav1.InplaceUpgradeCondition, infrav1.InplaceUpgradeRunningReason, clusterv1.ConditionSeverityInfo, "")
+		}
+		requeue, err := r.VMService.ReconcileUpgrade(ctx, r.RemoteClusterCacheTracker)
+		if err != nil {
+			return reconcile.Result{}, err
+		} else if requeue {
+			return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+		conditions.MarkTrue(ctx.GetVSphereMachine(), infrav1.InplaceUpgradeCondition)
+	}
 	return reconcile.Result{}, nil
 }
 

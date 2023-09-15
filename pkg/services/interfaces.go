@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/remote"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -36,6 +37,7 @@ type VSphereMachineService interface {
 	ReconcileDelete(ctx context.MachineContext) error
 	SyncFailureReason(ctx context.MachineContext) (bool, error)
 	ReconcileNormal(ctx context.MachineContext) (bool, error)
+	ReconcileUpgrade(ctx context.MachineContext, tracker *remote.ClusterCacheTracker) (bool, error)
 	GetHostInfo(ctx context.MachineContext) (string, error)
 }
 

@@ -353,7 +353,7 @@ func setupVAPIControllers(ctx *context.ControllerManagerContext, mgr ctrlmgr.Man
 	if err := controllers.AddClusterControllerToManager(ctx, mgr, &v1beta1.VSphereCluster{}, concurrency(vSphereClusterConcurrency)); err != nil {
 		return err
 	}
-	if err := controllers.AddMachineControllerToManager(ctx, mgr, &v1beta1.VSphereMachine{}, concurrency(vSphereMachineConcurrency)); err != nil {
+	if err := controllers.AddMachineControllerToManager(ctx, mgr, tracker, &v1beta1.VSphereMachine{}, concurrency(vSphereMachineConcurrency)); err != nil {
 		return err
 	}
 	if err := controllers.AddVMControllerToManager(ctx, mgr, tracker, concurrency(vSphereVMConcurrency)); err != nil {
@@ -371,7 +371,7 @@ func setupSupervisorControllers(ctx *context.ControllerManagerContext, mgr ctrlm
 		return err
 	}
 
-	if err := controllers.AddMachineControllerToManager(ctx, mgr, &vmwarev1b1.VSphereMachine{}, concurrency(vSphereMachineConcurrency)); err != nil {
+	if err := controllers.AddMachineControllerToManager(ctx, mgr, tracker, &vmwarev1b1.VSphereMachine{}, concurrency(vSphereMachineConcurrency)); err != nil {
 		return err
 	}
 

@@ -111,6 +111,15 @@ const (
 	// NotFoundReason (Severity=Warning) documents the VSphereVM not having the PCI device attached during VM startup.
 	// This would indicate that the PCI devices were removed out of band by an external entity.
 	NotFoundReason = "NotFound"
+
+	// InplaceUpgradeCondition documents the status of the in-place upgrade of VSphereMachine and its underlying VSphereVM.
+	InplaceUpgradeCondition clusterv1.ConditionType = "InplaceUpgrade"
+
+	// InplaceUpgradeRunningReason documents that the VsphereMachine is pending in-place upgrade
+	InplaceUpgradeRunningReason = "InplaceUpgradeRunning"
+
+	// InplaceUpgradeRunningReason documents that the VsphereMachine is pending in-place upgrade
+	InplaceUpgradeFailedReason = "InplaceUpgradeFailed"
 )
 
 // Conditions and Reasons related to utilizing a VSphereIdentity to make connections to a VCenter.

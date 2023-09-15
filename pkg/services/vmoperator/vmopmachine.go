@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/remote"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -217,6 +218,10 @@ func (v *VmopMachineService) ReconcileNormal(c context.MachineContext) (bool, er
 	// Mark the VSphereMachine as Ready
 	ctx.VSphereMachine.Status.Ready = true
 	conditions.MarkTrue(ctx.VSphereMachine, infrav1.VMProvisionedCondition)
+	return false, nil
+}
+
+func (v *VmopMachineService) ReconcileUpgrade(c context.MachineContext, tracker *remote.ClusterCacheTracker) (bool, error) {
 	return false, nil
 }
 
